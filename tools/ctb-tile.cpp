@@ -80,7 +80,8 @@ public:
     meshQualityFactor(1.0),
     metadata(false),
     cesiumFriendly(false),
-    vertexNormals(false)
+    vertexNormals(false),
+    gzib(false)
   {}
 
   void
@@ -225,6 +226,10 @@ public:
     static_cast<TerrainBuild *>(Command::self(command))->vertexNormals = true;
   }
 
+  static void setGzib(command_t *command) {
+      static_cast<TerrainBuild *>(Command::self(command))->gzib = true;
+  }
+
   const char *outputDir,
     *outputFormat,
     *profile;
@@ -244,6 +249,7 @@ public:
   bool metadata;
   bool cesiumFriendly;
   bool vertexNormals;
+  bool gzib;
 };
 
 /**
@@ -671,7 +677,7 @@ buildMesh(MeshSerializer &serializer, const MeshTiler &tiler, TerrainBuild *comm
 
     if (serializer.mustSerializeCoordinate(coordinate)) {
       MeshTile *tile = iter.operator*(&reader);
-      serializer.serializeTile(tile, writeVertexNormals);
+      serializer.serializeTile(tile, writeVertexNormals, command->gzib);
       delete tile;
     }
 
@@ -778,6 +784,8 @@ main(int argc, char *argv[]) {
   command.option("-N", "--vertex-normals", "Write 'Oct-Encoded Per-Vertex Normals' for Terrain Lighting, only for `Mesh` format", TerrainBuild::setVertexNormals);
   command.option("-q", "--quiet", "only output errors", TerrainBuild::setQuiet);
   command.option("-v", "--verbose", "be more noisy", TerrainBuild::setVerbose);
+  command.option("-G", "--gzip", "use zib compress file(defalut uncompress)", TerrainBuild::setGzib);
+
 
   // Parse and check the arguments
   command.parse(argc, argv);
@@ -822,7 +830,7 @@ main(int argc, char *argv[]) {
   // Calculate metadata?
   const string dirname = string(command.outputDir) + osDirSep;
   const std::string filename = concat(dirname, "layer.json");
-  TerrainMetadata *metadata = command.metadata ? new TerrainMetadata() : NULL;
+  TerrainMetadata *metadata = new TerrainMetadata();
 
   // Instantiate the threads using futures from a packaged_task
   for (int i = 0; i < threadCount ; ++i) {

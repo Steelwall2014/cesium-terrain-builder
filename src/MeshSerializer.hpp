@@ -41,7 +41,7 @@ public:
   virtual bool mustSerializeCoordinate(const ctb::TileCoordinate *coordinate) = 0;
 
   /// Serialize a MeshTile to the store
-  virtual bool serializeTile(const ctb::MeshTile *tile, bool writeVertexNormals = false) = 0;
+  virtual bool serializeTile(const ctb::MeshTile *tile, bool writeVertexNormals = false, bool gzibFlag = false) = 0;
 
   /// Serialization finished, releases any resources loaded
   virtual void endSerialization() = 0;

@@ -54,7 +54,7 @@ public:
   /// Serialize a TerrainTile to the store
   virtual bool serializeTile(const ctb::TerrainTile *tile);
   /// Serialize a MeshTile to the store
-  virtual bool serializeTile(const ctb::MeshTile *tile, bool writeVertexNormals = false);
+  virtual bool serializeTile(const ctb::MeshTile *tile, bool writeVertexNormals = false, bool gzibFlag = false);
 
   /// Serialization finished, releases any resources loaded
   virtual void endSerialization() {};
