@@ -81,7 +81,11 @@ public:
     metadata(false),
     cesiumFriendly(false),
     vertexNormals(false),
-    gzib(false)
+    gzib(false),
+    layerStartX(-DBL_MAX),
+    layerStartY(-DBL_MAX),
+    layerEndX(DBL_MAX),
+    layerEndY(DBL_MAX)
   {}
 
   void
@@ -230,6 +234,19 @@ public:
       static_cast<TerrainBuild *>(Command::self(command))->gzib = true;
   }
 
+  static void setLayerStartX(command_t *command) {
+      static_cast<TerrainBuild *>(Command::self(command))->layerStartX = atof(command->arg);
+  }
+  static void setLayerStartY(command_t *command) {
+      static_cast<TerrainBuild *>(Command::self(command))->layerStartY = atof(command->arg);
+  }
+  static void setLayerEndX(command_t *command) {
+      static_cast<TerrainBuild *>(Command::self(command))->layerEndX = atof(command->arg);
+  }
+  static void setLayerEndY(command_t *command) {
+      static_cast<TerrainBuild *>(Command::self(command))->layerEndY = atof(command->arg);
+  }
+
   const char *outputDir,
     *outputFormat,
     *profile;
@@ -250,6 +267,7 @@ public:
   bool cesiumFriendly;
   bool vertexNormals;
   bool gzib;
+  double layerStartX, layerStartY, layerEndX, layerEndY;
 };
 
 /**
@@ -643,7 +661,6 @@ static void
 buildMesh(MeshSerializer &serializer, const MeshTiler &tiler, TerrainBuild *command, TerrainMetadata *metadata, bool writeVertexNormals = false) {
   i_zoom startZoom = (command->startZoom < 0) ? tiler.maxZoomLevel() : command->startZoom,
     endZoom = (command->endZoom < 0) ? 0 : command->endZoom;
-
   // DEBUG Chunker:
   #if 0
   const string dirname = string(command->outputDir) + osDirSep;
@@ -673,12 +690,25 @@ buildMesh(MeshSerializer &serializer, const MeshTiler &tiler, TerrainBuild *comm
 
   while (!iter.exhausted()) {
     const TileCoordinate *coordinate = iter.GridIterator::operator*();
-    if (metadata) metadata->add(tiler.grid(), coordinate);
+    const CRSBounds &extent = tiler.grid().getExtent();
+    CRSPoint crs_ll = extent.getLowerLeft();
+    CRSPoint crs_ur = extent.getUpperRight();
+    crs_ll.x = max(crs_ll.x, command->layerStartX);
+    crs_ll.y = max(crs_ll.y, command->layerStartY);
+    crs_ur.x = min(crs_ur.x, command->layerEndX);
+    crs_ur.y = min(crs_ur.y, command->layerEndY);
+    TileCoordinate ll = tiler.grid().crsToTile(crs_ll, coordinate->zoom),
+        ur = tiler.grid().crsToTile(crs_ur, coordinate->zoom);
 
-    if (serializer.mustSerializeCoordinate(coordinate)) {
-      MeshTile *tile = iter.operator*(&reader);
-      serializer.serializeTile(tile, writeVertexNormals, command->gzib);
-      delete tile;
+    if (ll.x <= coordinate->x && coordinate->x <= ur.x &&
+        ll.y <= coordinate->y && coordinate->y <= ur.y)
+    {
+        if (metadata) metadata->add(tiler.grid(), coordinate);
+        if (serializer.mustSerializeCoordinate(coordinate)) {
+            MeshTile *tile = iter.operator*(&reader);
+            serializer.serializeTile(tile, writeVertexNormals, command->gzib);
+            delete tile;
+        }
     }
 
     currentIndex = incrementIterator(iter, currentIndex);
@@ -785,7 +815,10 @@ main(int argc, char *argv[]) {
   command.option("-q", "--quiet", "only output errors", TerrainBuild::setQuiet);
   command.option("-v", "--verbose", "be more noisy", TerrainBuild::setVerbose);
   command.option("-G", "--gzip", "use zib compress file(defalut uncompress)", TerrainBuild::setGzib);
-
+  command.option("-A", "--start-x <sx>", "lower left crs x", TerrainBuild::setLayerStartX);
+  command.option("-D", "--end-x <ex>", "upper right crs x", TerrainBuild::setLayerEndX);
+  command.option("-W", "--start-y <sy>", "upper right crs y", TerrainBuild::setLayerEndY);
+  command.option("-S", "--end-y <ey>", "lower left crs y", TerrainBuild::setLayerStartY);
 
   // Parse and check the arguments
   command.parse(argc, argv);
