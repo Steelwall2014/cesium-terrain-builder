@@ -40,6 +40,8 @@
 #include <thread>
 #include <mutex>
 #include <future>
+#include <json.hpp>
+#include <set>
 
 #include "cpl_multiproc.h"      // for CPLGetNumCPUs
 #include "cpl_vsi.h"            // for virtual filesystem
@@ -246,6 +248,9 @@ public:
   static void setLayerEndY(command_t *command) {
       static_cast<TerrainBuild *>(Command::self(command))->layerEndY = atof(command->arg);
   }
+  static void setTilesFilterFilePath(command_t *command) {
+      static_cast<TerrainBuild *>(Command::self(command))->tilesFilterFilePath = std::string(command->arg);
+  }
 
   const char *outputDir,
     *outputFormat,
@@ -268,6 +273,8 @@ public:
   bool vertexNormals;
   bool gzib;
   double layerStartX, layerStartY, layerEndX, layerEndY;
+
+  std::string tilesFilterFilePath;
 };
 
 /**
@@ -683,6 +690,44 @@ buildMesh(MeshSerializer &serializer, const MeshTiler &tiler, TerrainBuild *comm
   return;
   #endif
 
+  auto cmp = [](const TileCoordinate &A, const TileCoordinate &B)
+  {
+      if (A.zoom == B.zoom)
+      {
+          if (A.x == B.x)
+          {
+              if (A.y == B.y)
+              {
+                  return false;
+              }
+              return A.y < B.y;
+          }
+          return A.x < B.x;
+      }
+      return A.zoom < B.zoom;
+  };
+  std::set<TileCoordinate, decltype(cmp)> Filter(cmp);
+  if (command->tilesFilterFilePath != "")
+  {
+      nlohmann::json json;
+      std::stringstream stream(command->tilesFilterFilePath);
+      stream >> json;
+      if (json.contains("tiles") && json["tiles"].is_array())
+      {
+          nlohmann::json &tiles = json["tiles"];
+          for (int i = 0; i < tiles.size(); i++)
+          {
+              nlohmann::json &tile = tiles[i];
+              if (tile.is_array() && tile.size() == 3 && tile[0].is_number_unsigned() && tile[1].is_number_unsigned() && tile[2].is_number_unsigned())
+              {
+                  int z = tile[0].get<int>();
+                  int x = tile[1].get<int>();
+                  int y = tile[2].get<int>();
+                  Filter.insert(TileCoordinate(z, x, y));
+              }
+          }
+      }
+  }
   MeshIterator iter(tiler, startZoom, endZoom);
   int currentIndex = incrementIterator(iter, 0);
   setIteratorSize(iter);
@@ -701,7 +746,8 @@ buildMesh(MeshSerializer &serializer, const MeshTiler &tiler, TerrainBuild *comm
         ur = tiler.grid().crsToTile(crs_ur, coordinate->zoom);
 
     if (ll.x <= coordinate->x && coordinate->x <= ur.x &&
-        ll.y <= coordinate->y && coordinate->y <= ur.y)
+        ll.y <= coordinate->y && coordinate->y <= ur.y &&
+        (Filter.empty() || Filter.find(*coordinate) != Filter.end()))
     {
         if (metadata) metadata->add(tiler.grid(), coordinate);
         if (serializer.mustSerializeCoordinate(coordinate)) {
@@ -819,6 +865,7 @@ main(int argc, char *argv[]) {
   command.option("-D", "--end-x <ex>", "upper right crs x", TerrainBuild::setLayerEndX);
   command.option("-W", "--start-y <sy>", "upper right crs y", TerrainBuild::setLayerEndY);
   command.option("-S", "--end-y <ey>", "lower left crs y", TerrainBuild::setLayerStartY);
+  command.option("-tl", "--tiles-list <file>", "specify the tiles to be generated, it's used as a fileter", TerrainBuild::setTilesFilterFilePath);
 
   // Parse and check the arguments
   command.parse(argc, argv);
@@ -863,7 +910,7 @@ main(int argc, char *argv[]) {
   // Calculate metadata?
   const string dirname = string(command.outputDir) + osDirSep;
   const std::string filename = concat(dirname, "layer.json");
-  TerrainMetadata *metadata = new TerrainMetadata();
+  TerrainMetadata *metadata = command.metadata ? new TerrainMetadata() : NULL;
 
   // Instantiate the threads using futures from a packaged_task
   for (int i = 0; i < threadCount ; ++i) {
